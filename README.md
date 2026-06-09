@@ -21,6 +21,29 @@ TF-IDF es una técnica de ponderación de términos que combina la frecuencia de
 - Ajusta un umbral de decisión en un conjunto de validación para clasificar pares como plagio o no plagio.
 - Evalúa el modelo en un conjunto de prueba con métricas como precisión, recall y F1.
 
+### Diagrama de funcionamiento
+
+```mermaid
+flowchart TD
+    A["Dataset de códigos Python"] --> B["Construcción de pares"]
+    B --> C["Split por assignment: train, validation, test"]
+    C --> D["Normalización de code_a y code_b"]
+    D --> E["Ajustar TfidfVectorizer solo con train: norm_a + norm_b"]
+    E --> F["Transformar code_a normalizado"]
+    E --> G["Transformar code_b normalizado"]
+    F --> H["Vector TF-IDF A"]
+    G --> I["Vector TF-IDF B"]
+    H --> J["paired_cosine_distances"]
+    I --> J
+    J --> K["Score = 1 - distancia coseno"]
+    K --> L["Validation: probar umbrales 0.05 a 0.95"]
+    L --> M["Elegir best_t por F1"]
+    K --> N{"Score >= best_t"}
+    M --> N
+    N -->|Sí| O["Plagio"]
+    N -->|No| P["No plagio"]
+```
+
 ### Procedimiento
 1. Carga y preprocesamiento del dataset.
 2. Construcción de pares de código:
@@ -81,6 +104,29 @@ Bag of Words es una técnica de representación de texto que extrae los tokens d
 - Ajusta un umbral de decisión en un conjunto de validación para clasificar pares como plagio o no plagio.
 - Evalúa el modelo en un conjunto de prueba con métricas como precisión, recall y F1.
 
+### Diagrama de funcionamiento
+
+```mermaid
+flowchart TD
+    A["Dataset de códigos Python"] --> B["Construcción de pares"]
+    B --> C["Split por assignment: train, validation, test"]
+    C --> D["Normalización de code_a y code_b"]
+    D --> E["Ajustar CountVectorizer solo con train: norm_a + norm_b"]
+    E --> F["Transformar code_a normalizado"]
+    E --> G["Transformar code_b normalizado"]
+    F --> H["Vector de conteos A"]
+    G --> I["Vector de conteos B"]
+    H --> J["paired_cosine_distances"]
+    I --> J
+    J --> K["Score = 1 - distancia coseno"]
+    K --> L["Validation: probar umbrales 0.05 a 0.95"]
+    L --> M["Elegir best_t por F1"]
+    K --> N{"Score >= best_t"}
+    M --> N
+    N -->|Sí| O["Plagio"]
+    N -->|No| P["No plagio"]
+```
+
 ### Procedimiento
 1. Carga y preprocesamiento del dataset.
 2. Construcción de pares de código:
@@ -127,6 +173,103 @@ El conjunto de prueba arrojó las siguientes métricas:
 El umbral de decisión elegido `0.95` representa el punto de corte sobre la similitud de coseno que ofrece un balance entre falsos positivos y falsos negativos en el conjunto de validación. Debido a que BoW mide frecuencias absolutas sin atenuar las palabras comunes (como estructuras nativas de Python que se repiten en casi cualquier código), las puntuaciones vectoriales de similitud son inherentemente más altas que en TF-IDF. Por ello, el algoritmo requiere un umbral drásticamente más estricto (`0.95` frente al `0.705` de TF-IDF) para discernir correctamente el plagio.
 
 Aumentar el umbral hace el detector más conservador: reduce las falsas alarmas (falsos positivos), pero aumenta los plagios omitidos (falsos negativos), lo que disminuye el `recall`. Por otro lado, disminuir el umbral hace el detector más permisivo: reduce los falsos negativos y mejora el `recall`, pero incrementa de gran manera los falsos positivos. El punto de corte elegido busca el equilibrio óptimo para maximizar el indicador global `f1` sin desplomar la `accuracy` general del sistema.
+
+# Modelo BiLSTM
+
+BiLSTM es un modelo de aprendizaje profundo que procesa secuencias de tokens en dos direcciones: de izquierda a derecha y de derecha a izquierda. En este proyecto se usa para aprender una representación vectorial de cada fragmento de código y comparar ambos vectores para predecir si existe plagio.
+
+## Funcionamiento
+- Normaliza los dos fragmentos de código igual que los modelos estadísticos.
+- Convierte los tokens normalizados en secuencias numéricas con `TextVectorization`.
+- Usa una capa `Embedding` para representar cada token como vector denso.
+- Procesa cada secuencia con un encoder BiLSTM compartido.
+- Compara las dos representaciones con diferencia absoluta y producto elemento a elemento.
+- Clasifica el par con capas densas y una salida `sigmoid`.
+
+## Diagrama de funcionamiento
+
+```mermaid
+flowchart TD
+    A["Dataset de códigos Python"] --> B["Construcción de pares positivos y negativos"]
+    B --> C["Split por assignment: train, validation, test"]
+    C --> D["Normalización de code_a y code_b"]
+    D --> E["Adaptar TextVectorization solo con train: norm_a + norm_b"]
+    E --> F["Secuencia A: longitud 300"]
+    E --> G["Secuencia B: longitud 300"]
+    F --> H["Embedding compartido aplicado a A"]
+    G --> I["Embedding compartido aplicado a B"]
+    H --> J["Encoder compartido aplicado a A: BiLSTM 64 + Dense 128 + Dropout"]
+    I --> K["Encoder compartido aplicado a B: BiLSTM 64 + Dense 128 + Dropout"]
+    J --> L["Representación A"]
+    K --> M["Representación B"]
+    L --> N["Diferencia absoluta"]
+    M --> N
+    L --> O["Producto elemento a elemento"]
+    M --> O
+    L --> P["Concatenación"]
+    M --> P
+    N --> P
+    O --> P
+    P --> Q["Dense 128 relu + Dropout 0.30"]
+    Q --> R["Dense 64 relu"]
+    R --> S["Dense 1 sigmoid"]
+    S --> T["Score de plagio"]
+    T --> U["Validation: probar umbrales 0.05 a 0.95"]
+    U --> V["Elegir BILSTM_THRESHOLD por F1"]
+    T --> W{"Score >= BILSTM_THRESHOLD"}
+    V --> W
+    W -->|Sí| X["Plagio"]
+    W -->|No| Y["No plagio"]
+```
+
+## Resultados obtenidos
+
+El modelo BiLSTM fue entrenado con pares balanceados de código: 16,094 pares para entrenamiento, 3,442 para validación y 3,380 para prueba. La división se hizo por `assignment`, evitando que una misma asignación apareciera al mismo tiempo en entrenamiento, validación y prueba.
+
+Durante el entrenamiento se usó `EarlyStopping`, por lo que el proceso se detuvo después de 3 épocas. El mejor umbral de decisión se seleccionó sobre el conjunto de validación maximizando F1, igual que en los modelos estadísticos. El umbral elegido fue `0.875`.
+
+### Matriz de confusión
+
+![Matriz de confusión BiLSTM](bilstm/bilstm_confusion_matrix.png)
+
+La matriz de confusión del conjunto de prueba se resume así:
+
+|                      | Predicción: plagio | Predicción: no plagio |
+|----------------------|--------------------|------------------------|
+| Real: plagio         | 1636               | 54                     |
+| Real: no plagio      | 204                | 1486                   |
+
+Donde:
+- Verdaderos Positivos (TP) = 1636
+- Falsos Negativos (FN) = 54
+- Falsos Positivos (FP) = 204
+- Verdaderos Negativos (TN) = 1486
+
+El conjunto de prueba arrojó las siguientes métricas:
+
+| Métrica     | Valor              |
+|------------|--------------------|
+| accuracy   | 0.923669           |
+| precision  | 0.889130           |
+| recall     | 0.968047           |
+| f1         | 0.926912           |
+| threshold  | 0.875              |
+
+**Análisis de resultados**: El modelo BiLSTM obtiene el mejor rendimiento global de los tres enfoques reportados, con un `f1` de **0.9269** y una `accuracy` de **0.9237** en prueba. Su principal fortaleza es el `recall` de **0.9680**, lo que significa que detecta la gran mayoría de los casos reales de plagio y deja pocos falsos negativos.
+
+El costo de este comportamiento es que genera más falsos positivos que falsos negativos: clasificó como plagio **204** pares que realmente eran negativos. Esto indica que el modelo es más sensible a patrones estructurales parecidos entre códigos de asignaciones distintas. Aun así, el balance general es favorable porque reduce mucho los plagios omitidos, que suelen ser el error más delicado en un detector de plagio.
+
+El umbral `0.875` hace que el modelo sea más estricto que una clasificación directa con `0.50`, pero aun así mantiene una tendencia a favorecer la detección de plagio. Por eso, cuando aparecen ejemplos con `label = 0` y `prediction = 1`, no significa que las etiquetas estén mal: son falsos positivos donde el modelo encontró alta similitud entre códigos que pertenecen a asignaciones diferentes.
+
+## Comparación general
+
+| Modelo        | Accuracy | Recall | F1     | Umbral |
+|---------------|----------|--------|--------|--------|
+| TF-IDF        | 0.8725   | 0.8710 | 0.8723 | 0.705  |
+| Bag of Words  | 0.8799   | 0.9065 | 0.8830 | 0.950  |
+| BiLSTM        | 0.9237   | 0.9680 | 0.9269 | 0.875  |
+
+En esta comparación, BiLSTM supera a TF-IDF y BoW en `accuracy`, `recall` y `f1`. Esto sugiere que aprender representaciones secuenciales del código permite capturar relaciones más ricas que las representaciones basadas únicamente en frecuencia o ponderación de n-gramas. Sin embargo, TF-IDF y BoW siguen siendo modelos más simples, rápidos e interpretables, por lo que funcionan como líneas base útiles para medir la mejora real del modelo profundo.
 
 # Autores
 - Axel Camacho
