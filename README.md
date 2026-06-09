@@ -9,7 +9,7 @@ El objetivo es construir un prototipo que reciba dos códigos Python y devuelva 
 ## Definición del proyecto
 Es un proyecto para detección de plagio en código fuente. Básicamente, el sistema recibe dos fragmentos de código, los procesa y predice si existe plagio entre ellos.
 
-## Algoritmos estadísticos
+# Algoritmos estadísticos
 
 ## TF-IDF
 TF-IDF es una técnica de ponderación de términos que combina la frecuencia de un token en un documento con la rareza de ese token en todo el conjunto de documentos. En este caso se aplica sobre tokens de código normalizado para capturar diferencias de estilo y estructura.
