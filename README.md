@@ -4,10 +4,37 @@
 Este proyecto desarrolla un detector de plagio para código Python basado en técnicas de recuperación de información. La idea central es comparar dos fragmentos de código y determinar si su similitud sugiere que uno es una copia no autorizada del otro.
 
 ## Objetivo
-El objetivo es construir un prototipo que reciba dos códigos Python y devuelva una predicción binaria: plagio o no plagio. Para lograrlo, se utiliza normalización de código, vectorización TF-IDF y similitud de coseno.
+El objetivo es construir un prototipo que reciba dos códigos Python y devuelva una predicción binaria: plagio o no plagio. Para lograrlo, se comparan tres enfoques: TF-IDF con similitud de coseno, Bag of Words con similitud de coseno y un modelo BiLSTM.
 
 ## Definición del proyecto
 Es un proyecto para detección de plagio en código fuente. Básicamente, el sistema recibe dos fragmentos de código, los procesa y predice si existe plagio entre ellos.
+
+## Descripción del dataset
+
+El proyecto utiliza el **Python Plagiarism Code Dataset**, un conjunto de datos diseñado para entrenar y evaluar sistemas de detección de plagio de código escrito en Python. El dataset contiene implementaciones originales de problemas de programación y versiones sintéticas con distintos niveles de transformación.
+
+El propósito del dataset es superar las limitaciones de herramientas tradicionales que dependen demasiado de similitud sintáctica. En casos de plagio más sofisticado, el código puede cambiar nombres, comentarios, orden de instrucciones o estructuras de control, pero conservar la misma funcionalidad. Por eso, este dataset permite evaluar si un modelo puede detectar similitud más allá de coincidencias superficiales.
+
+### Estructura del dataset
+
+El dataset contiene:
+- **Código original**: soluciones fuente de problemas de programación en Python.
+- **Versiones plagiadas**: variaciones sintéticas del código original con 6 niveles de transformación.
+- **Modelos generadores**: las variantes fueron generadas usando DeepSeek Coder y GPT-4o-mini.
+- **Problemas base**: los códigos originales fueron seleccionados a partir de MBPP (*Mostly Basic Python Problems*) de Google.
+
+### Niveles de transformación
+
+| Nivel | Tipo de transformación | Descripción |
+|-------|------------------------|-------------|
+| 1 | Copia casi literal | Conserva lógica, estructura y sintaxis; puede cambiar comentarios o indentación. |
+| 2 | Renombrado de identificadores | Cambia nombres de variables, funciones u otros identificadores. |
+| 3 | Cambio de comentarios | Modifica o reescribe comentarios sin alterar la lógica. |
+| 4 | Reordenamiento de instrucciones | Cambia el orden de sentencias o bloques conservando la funcionalidad. |
+| 5 | Cambio de estructuras de control | Modifica ciclos, condicionales o llamadas manteniendo el algoritmo principal. |
+| 6 | Cambio de lógica | Altera de forma importante el algoritmo, pero busca producir el mismo resultado. |
+
+El dataset incluye métricas de similitud como BERTScore, ROUGE y similitud de coseno basada en embeddings de código. En este proyecto, el dataset se usa como base para construir pares positivos y negativos, normalizar código y comparar el rendimiento de modelos estadísticos contra un modelo secuencial profundo.
 
 # Algoritmos estadísticos
 
@@ -270,6 +297,35 @@ El umbral `0.875` hace que el modelo sea más estricto que una clasificación di
 | BiLSTM        | 0.9237   | 0.9680 | 0.9269 | 0.875  |
 
 En esta comparación, BiLSTM supera a TF-IDF y BoW en `accuracy`, `recall` y `f1`. Esto sugiere que aprender representaciones secuenciales del código permite capturar relaciones más ricas que las representaciones basadas únicamente en frecuencia o ponderación de n-gramas. Sin embargo, TF-IDF y BoW siguen siendo modelos más simples, rápidos e interpretables, por lo que funcionan como líneas base útiles para medir la mejora real del modelo profundo.
+
+## Diagnóstico de ajuste
+
+El comportamiento del modelo BiLSTM indica un **buen ajuste general**. No se observa underfitting, porque el modelo alcanza métricas altas en entrenamiento, validación y prueba. Tampoco se observa un overfitting fuerte, porque la diferencia entre los resultados de entrenamiento y prueba es pequeña.
+
+| Split        | Accuracy | Precision | Recall | F1     |
+|--------------|----------|-----------|--------|--------|
+| Train        | 0.9292   | 0.9026    | 0.9621 | 0.9314 |
+| Validation   | 0.9277   | 0.9075    | 0.9524 | 0.9294 |
+| Test         | 0.9237   | 0.8891    | 0.9680 | 0.9269 |
+
+La diferencia entre `train_f1 = 0.9314` y `test_f1 = 0.9269` es de aproximadamente **0.0045**, lo cual es muy bajo. Esto sugiere que el modelo generaliza bien y que no está memorizando de forma importante el conjunto de entrenamiento.
+
+Durante el entrenamiento, la pérdida de validación mejora en la primera época y luego empieza a empeorar ligeramente, mientras que las métricas se mantienen altas. Por eso se usa `EarlyStopping`, que detiene el entrenamiento después de 3 épocas y restaura los mejores pesos. Este comportamiento puede interpretarse como un **inicio de sobreajuste leve**, pero controlado por la detención temprana.
+
+## Limitaciones
+
+- El dataset contiene plagio sintético generado por LLMs. Aunque simula escenarios académicos, puede no capturar toda la diversidad de plagio humano real.
+- Los pares negativos se construyen comparando código de asignaciones distintas. Algunos falsos positivos pueden aparecer cuando dos problemas diferentes tienen soluciones estructuralmente parecidas.
+- La normalización reemplaza identificadores, cadenas y números por tokens genéricos (`ID`, `STR`, `NUM`). Esto reduce ruido, pero también elimina información que podría ser útil en algunos casos.
+- TF-IDF y BoW dependen de n-gramas de caracteres, por lo que capturan similitud superficial y estructural, pero no entienden completamente la semántica del programa.
+- BiLSTM mejora el rendimiento, pero sigue trabajando sobre tokens normalizados y secuencias truncadas a una longitud máxima de 300 tokens.
+
+## Mejoras futuras
+
+- Evaluar modelos basados en Transformers especializados en código, como CodeBERT, GraphCodeBERT o embeddings modernos de código.
+- Incorporar representaciones estructurales como AST, grafos de flujo de control o grafos de dependencias para capturar similitud semántica más profunda.
+- Agregar validación cruzada por `assignment` para estimar mejor la estabilidad de los resultados.
+- Evaluar métricas adicionales como ROC-AUC.
 
 # Autores
 - Axel Camacho
